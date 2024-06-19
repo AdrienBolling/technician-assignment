@@ -1,0 +1,26 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="Default args" type="PythonConfigurationType" factoryName="Python" folderName="Train">
+    <module name="technician-assignment" />
+    <option name="ENV_FILES" value="" />
+    <option name="INTERPRETER_OPTIONS" value="" />
+    <option name="PARENT_ENVS" value="true" />
+    <envs>
+      <env name="PYTHONUNBUFFERED" value="1" />
+    </envs>
+    <option name="SDK_HOME" value="" />
+    <option name="SDK_NAME" value="technician-dispatching" />
+    <option name="WORKING_DIRECTORY" value="" />
+    <option name="IS_MODULE_SDK" value="false" />
+    <option name="ADD_CONTENT_ROOTS" value="true" />
+    <option name="ADD_SOURCE_ROOTS" value="true" />
+    <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
+    <option name="SCRIPT_NAME" value="$PROJECT_DIR$/../technician-assignment/src/nn/agent/momappo_v1.py" />
+    <option name="PARAMETERS" value="--env-id=dispatching_v1 --exp-name=gru-momappo-v1 --seed=0 --ref-point=-1 --debug=False --save-policies=True --track=True --wandb-project=moma_technician_dispatching --wandb-entity=bolling-adrien --auto-tag=False --num-weights=5 --weights-generation=OLS --num-steps-per-epoch=1280 --update-epochs=2 --num-minibatches=2 --gamma=0.99 --lr=1e-3 --gae-lambda=0.99 --clip-eps=0.2 --ent-coef=0.0 --vf-coef=0.8 --max-grad-norm=0.5 --actor-net-arch=256,256 --critic-net-arch=256,256 --activation=tanh --anneal-lr=True" />
+    <option name="SHOW_COMMAND_LINE" value="false" />
+    <option name="EMULATE_TERMINAL" value="false" />
+    <option name="MODULE_MODE" value="false" />
+    <option name="REDIRECT_INPUT" value="false" />
+    <option name="INPUT_FILE" value="" />
+    <method v="2" />
+  </configuration>
+</component>
