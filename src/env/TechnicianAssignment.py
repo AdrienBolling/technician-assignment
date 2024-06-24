@@ -4,7 +4,6 @@ from typing import Optional
 import numpy as np
 import wandb
 from gymnasium import spaces
-from pettingzoo.utils.env import AgentID, ActionType, ObsType
 from typing_extensions import override
 from pettingzoo.utils.wrappers import AssertOutOfBoundsWrapper
 from momaland.utils.conversions import mo_parallel_to_aec
@@ -95,7 +94,7 @@ class TechnicianDispatchingBase(MOParallelEnv):
             grid_size: Optional[int] = 100,
             gini_index_horizon: Optional[int] = 100,
             max_timesteps: Optional[int] = 1000,
-            log: Optional[bool] = False,
+            log: Optional[bool] = True,
             initial_random_seed: Optional[int] = 42,
             ticket_embedding_shape: Optional[int] = 2,
             featurizer_type: Optional[str] = "identity",
@@ -238,6 +237,10 @@ class TechnicianDispatchingBase(MOParallelEnv):
 
         # Restore the randomness state
         np.random.set_state(self.random_seed)
+        self.supervisor = None
+        self.supervised = None
+        self.truncations = {agent: False for agent in self.agents_names}
+        self.terminations = {agent: False for agent in self.agents_names}
 
     def _init_technicians(self, num_technicians, technicians_history_horizons, initial_experience_seeds):
         technicians = dict()
@@ -276,7 +279,8 @@ class TechnicianDispatchingBase(MOParallelEnv):
         num_features_technician = self.technicians[self.agents_names[0]].feature_size
         num_features_ticket = self.ticket_generator.num_ticket_features
         num_technicians = len(self.technicians)
-        num_features = num_features_technician + 2*num_features_ticket + (num_technicians-1) * num_features_technician
+        num_features = num_features_technician + 2 * num_features_ticket + (
+                    num_technicians - 1) * num_features_technician
         # TODO: Define the boundaries of the observation space more precisely (sample won't be used anyway other than
         #  for test purposes)
         return spaces.Box(low=-1000, high=1000, shape=(num_features,), dtype=np.float32)
@@ -416,17 +420,17 @@ class TechnicianDispatchingBase(MOParallelEnv):
         """
 
         if self.actions_occurrences[1] != 1:
-            self.agents = []
+            # self.agents = []
             return {agent: True for agent in self.agents_names}
         elif self.actions_occurrences[2] > 1:
-            self.agents = []
+            # self.agents = []
             return {agent: True for agent in self.agents_names}
         else:
             return {agent: False for agent in self.agents_names}
 
     def _compute_truncation(self):
         if self.timestep:
-            self.agents = []
+            # self.agents = []
             return {agent: self.timestep >= self.max_timesteps for agent in self.agents_names}
         else:
             return {agent: False for agent in self.agents_names}
@@ -465,6 +469,8 @@ class TechnicianDispatchingBase(MOParallelEnv):
         self.agents = copy(self.possible_agents)
         self.actions_occurrences = {action: 0 for action in range(3)}
         self.ticket_generator.reset()
+        self.supervisor = None
+        self.supervised = None
         if not hard:
             # Save random state
             saved_state = np.random.get_state()
@@ -478,6 +484,9 @@ class TechnicianDispatchingBase(MOParallelEnv):
         observation = self._compute_obs()
         infos = {agent: "Env reset" for agent in self.agents_names}
 
+        self.terminations = {agent: False for agent in self.agents_names}
+        self.truncations = {agent: False for agent in self.agents_names}
+
         if self.render_mode is not None:
             self.render()
 
@@ -489,7 +498,12 @@ class TechnicianDispatchingBase(MOParallelEnv):
 
     @override
     def step(self, actions):
-        self._state_step(actions)
+
+        self.supervisor = None
+        self.supervised = None
+        self.actions_occurrences = {action: 0 for action in range(3)}
+        for agent, action in actions.items():
+            self._state_step_single(agent, action)
 
         if self.render_mode is not None:
             rendering = self.render()
@@ -499,7 +513,9 @@ class TechnicianDispatchingBase(MOParallelEnv):
         observations = self._compute_obs()
         rewards = self._compute_reward()
         terminations = self._compute_terminated()
+        self.terminations = terminations
         truncations = self._compute_truncation()
+        self.truncations = truncations
         infos = self._compute_infos()
 
         if any(terminations.values()):
@@ -513,6 +529,9 @@ class TechnicianDispatchingBase(MOParallelEnv):
         for agent in self.agents_names:
             self.previous_ticket[agent] = self.ticket_generator.current_ticket if actions[agent] == 1 else (
                 self.ticket_generator.blank_ticket())
+
+        # if self.terminations[self.agents_names[0]]:
+        #     self.agents = []
 
         return observations, rewards, terminations, truncations, infos
 
@@ -543,11 +562,12 @@ class TechnicianDispatchingBase(MOParallelEnv):
             "rendering": rendering
         }
         wandb.log({"step": step_info})
+        print("Logged step")
 
     def _init_logging(self):
         parameters = {
             "num_technicians": len(self.technicians),
-            "technicians_history_horizon": self.technicians[0].history_horizon,
+            "technicians_history_horizon": self.gini_index_horizon,
             "num_experience_initial_seeds": self.technicians[0].num_experience_initial_seeds,
             "ticket_generator": self.ticket_generator,
             "experience_propagation_var_scale": self.experience_propagation_var_scale,
@@ -560,6 +580,7 @@ class TechnicianDispatchingBase(MOParallelEnv):
             "ticket_embedding_shape": self.ticket_embedding_shape,
         }
         wandb.log({"env_parameters": parameters})
+        print("Logged environment parameters")
 
     def _render_experience_grids(self, technician: Optional[Technician] = None):
         if technician:
@@ -609,3 +630,32 @@ class TechnicianDispatchingBase(MOParallelEnv):
 
         return
 
+    def _state_step_single(self, agent, action):
+        """
+        Update the environment state according to the action taken by the agent.
+        :param agent: str - the agent taking the action
+        :param action: int - the action taken by the agent
+        :return:
+        """
+        # Update the actions occurrences
+        action = int(action)
+        self.actions_occurrences[action] += 1
+        # Update the technicians experience grids
+        if action == 1:
+            self.technicians[agent].add_ticket_experience(self.ticket_generator.current_ticket)
+            self.technicians[agent].treated_last_ticket()
+
+            if self.supervisor:
+                self.technicians[agent].experience_grid.add_supervisor_experience(
+                    ticket=self.ticket_generator.current_ticket, supervisor=self.technicians[self.supervisor])
+            else:
+                self.supervised = agent
+        elif action == 2:
+            if not self.supervisor:
+                self.supervisor = agent
+                if self.supervised:
+                    self.technicians[self.supervised].experience_grid.add_supervisor_experience(
+                        ticket=self.ticket_generator.current_ticket, supervisor=self.technicians[self.supervisor])
+
+        self.ticket_generator.step()
+        self.timestep += 1

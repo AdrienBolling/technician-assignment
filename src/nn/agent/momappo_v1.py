@@ -1,7 +1,47 @@
 import sys
 import os
 
-os.environ['JAX_PLATFORM_NAME'] = 'cpu'
+import torch
+
+
+def check_cuda():
+    cuda_available = torch.cuda.is_available()
+    if cuda_available:
+        num_gpus = torch.cuda.device_count()
+        gpus = [torch.cuda.get_device_name(i) for i in range(num_gpus)]
+    else:
+        gpus = []
+
+    return cuda_available, gpus
+
+
+cuda_available, cuda_gpus = check_cuda()
+print("CUDA available:", cuda_available)
+print("CUDA GPUs:", cuda_gpus)
+
+
+def check_metal():
+    metal_available = False
+    metal_gpus = []
+    if torch.backends.mps.is_available() and torch.backends.mps.is_built():
+        metal_available = True
+        metal_gpus = ["Apple M1" if torch.device("mps").type == "mps" else "Unknown Metal Device"]
+
+    return metal_available, metal_gpus
+
+
+metal_available, metal_gpus = check_metal()
+print("Metal available:", metal_available)
+print("Metal GPUs:", metal_gpus)
+
+# Set the environment variable accordingly for jax
+if cuda_available:
+    os.environ['JAX_PLATFORM_NAME'] = 'gpu'
+elif metal_available:
+    print("Metal is available, however, JAX does not support Metal yet. Using CPU instead.")
+    os.environ['JAX_PLATFORM_NAME'] = 'cpu'
+else:
+    os.environ['JAX_PLATFORM_NAME'] = 'cpu'
 from distutils.util import strtobool
 
 import morl_baselines.common.weights
@@ -250,7 +290,6 @@ class GRUCritic(nn.Module):
         else:
             activation = nn.relu
 
-        print(global_obs.shape, self.current_tech_features_size, self.previous_ticket_features_size, self.other_features_size)
         step_size = self.current_tech_features_size + self.previous_ticket_features_size
         # Unpack the observation
         tech_features = [global_obs[i:i + self.current_tech_features_size] for i in
@@ -265,7 +304,7 @@ class GRUCritic(nn.Module):
         # Pass the concatenated features through the MLP
         critic = self.mlp(x)
 
-        return critic
+        return jnp.squeeze(critic, axis=-1)
 
 
 class Transition(NamedTuple):
@@ -372,7 +411,7 @@ def _calculate_gae(traj_batch, last_val):
         gae = delta + args.gamma * args.gae_lambda * (1 - done) * gae
         return (gae, value), gae
 
-    _, advantages = jax.lax.scan(
+    test, advantages = jax.lax.scan(
         _get_advantages,
         (jnp.zeros_like(last_val), last_val),
         traj_batch,
@@ -465,12 +504,12 @@ def train(args, env, weights: np.ndarray, key: chex.PRNGKey):
         frac = 1.0 - (count // (args.num_minibatches * args.update_epochs)) / num_updates
         return args.lr * frac
 
-    env = agent_indicator_v0(env)
     for agent in env.possible_agents:
         for idx in range(env.unwrapped.reward_space(agent).shape[0]):
             env = NormalizeReward(env, agent, idx)
     _weights = {agent: weights for agent in env.possible_agents}
     env = LinearizeReward(env, _weights)  # linearizing the rewards given the weights
+    env = agent_indicator_v0(env)
     env = RecordEpisodeStatistics(env)
 
     # Initial reset to have correct dimensions in the observations
@@ -653,7 +692,7 @@ if __name__ == "__main__":
         "grid_size": 100,
         "gini_index_horizon": 100,
         "max_timesteps": 1000,
-        "log": False,
+        "log": True,
         "initial_random_seed": 42,
         "ticket_embedding_shape": 2,
         "featurizer_type": "identity",

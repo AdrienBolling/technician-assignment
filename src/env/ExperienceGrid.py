@@ -205,6 +205,23 @@ class ExperienceGrid:
             gaussian=self.gaussian,
         )
 
+    def add_supervisor_experience(self, ticket: Ticket, supervisor):
+        """
+        Add experience to the experience grid
+        :param ticket: Ticket - ticket object
+        :param supervisor - supervisor technician object
+        :return: nothing, modifies in place
+        """
+        supervisor_experience = supervisor.experience_grid.get_experience(ticket)
+        ticket_embedding = self.ticket_featurizer.featurize(ticket)
+        current_experience = get_experience(self.experience_grid, ticket_embedding)
+
+        # Compute the new experience with the transmission factor
+        new_experience = (current_experience + supervisor_experience) * self.transmission_factor
+
+        coord = self._get_coord_from_embedding(ticket_embedding)
+        self.experience_grid.at[coord].set(new_experience)
+
     def _initialize_seed(self, seed_embedding: np.ndarray):
         """
         Initialize the random number generator with the given seed.

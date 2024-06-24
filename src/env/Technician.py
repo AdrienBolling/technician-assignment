@@ -93,7 +93,7 @@ class Technician:
         Get the proportion of tickets treated by the technician
         :return: float - proportion of tickets treated by the technician
         """
-        return np.mean(self.has_treated_last_hundred_tickets)
+        return np.mean(self.has_treated_last_hundred_tickets) if len(self.has_treated_last_hundred_tickets) > 0 else 0.0
 
     def get_gini_index(self):
         """
